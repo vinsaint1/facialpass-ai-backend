@@ -32,6 +32,7 @@ const cors = require('cors');
 const multer = require('multer');
 const { db, admin } = require('./firebaseConfig');
 const { loadModels, extractEmbeddings } = require('./utils/faceEngine');
+const { registerAdminRoutes } = require('./routes/adminAuth');
 
 // ── Initialize Express app ──
 const app = express();
@@ -55,6 +56,9 @@ const upload = multer({
     }
   }
 });
+
+// ── Register Admin Auth Routes ──
+registerAdminRoutes(app, db);
 
 // ═══════════════════════════════════════════════════════════════
 //  ENDPOINT 1: POST /register
@@ -270,19 +274,122 @@ app.post('/log-entry', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+//  ENDPOINT 5: GET /get-logs
+//  Fetch access logs from Firestore (for History tab)
+// ═══════════════════════════════════════════════════════════════
+app.get('/get-logs', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({
+        success: false,
+        error: 'Firestore not connected. Check Firebase configuration.'
+      });
+    }
+
+    const limit = parseInt(req.query.limit) || 50;
+
+    console.log(`\n📋 Fetching access logs (limit: ${limit})...`);
+
+    const snapshot = await db.collection('logs')
+      .orderBy('timestamp', 'desc')
+      .limit(limit)
+      .get();
+
+    const logs = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      logs.push({
+        id: doc.id,
+        studentId: data.studentId,
+        name: data.name,
+        status: data.status,
+        timestamp: data.timestamp
+      });
+    });
+
+    console.log(`  📊 Found ${logs.length} log(s)`);
+
+    res.json({
+      success: true,
+      count: logs.length,
+      logs: logs
+    });
+
+  } catch (error) {
+    console.error('❌ Fetch logs error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Server error fetching logs: ' + error.message
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  ENDPOINT 6: DELETE /delete-student/:id
+//  Delete a student from Firestore
+// ═══════════════════════════════════════════════════════════════
+app.delete('/delete-student/:id', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({
+        success: false,
+        error: 'Firestore not connected. Check Firebase configuration.'
+      });
+    }
+
+    const studentId = req.params.id;
+    const docId = studentId.replace(/\//g, '-');
+
+    console.log(`\n🗑️  Deleting student: ${studentId}`);
+
+    const docRef = db.collection('students').doc(docId);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: `Student with ID "${studentId}" not found.`
+      });
+    }
+
+    await docRef.delete();
+    console.log(`  ✅ Student deleted: ${docId}`);
+
+    res.json({
+      success: true,
+      message: `Student "${studentId}" has been deleted.`
+    });
+
+  } catch (error) {
+    console.error('❌ Delete student error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Server error deleting student: ' + error.message
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 //  HEALTH CHECK: GET /
 // ═══════════════════════════════════════════════════════════════
 app.get('/', (req, res) => {
   res.json({
     name: 'FacialPass AI — Backend API',
-    version: '1.0.0',
+    version: '2.0.0',
     status: 'running',
     firebase: db ? 'connected' : 'disconnected',
     endpoints: {
       register: 'POST /register',
       extractEmbeddings: 'POST /extract-embeddings',
       getStudents: 'GET /get-students',
-      logEntry: 'POST /log-entry'
+      logEntry: 'POST /log-entry',
+      getLogs: 'GET /get-logs',
+      deleteStudent: 'DELETE /delete-student/:id',
+      clearLogs: 'POST /clear-logs',
+      adminRegister: 'POST /admin/register',
+      adminLogin: 'POST /admin/login',
+      adminVerifyOtp: 'POST /admin/verify-otp',
+      adminResendOtp: 'POST /admin/resend-otp',
     }
   });
 });
@@ -304,10 +411,17 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📡 Endpoints ready:`);
-      console.log(`   POST /register           — Register a student`);
-      console.log(`   POST /extract-embeddings  — Extract face embeddings`);
-      console.log(`   GET  /get-students        — Fetch all students`);
-      console.log(`   POST /log-entry           — Log access event\n`);
+      console.log(`   POST   /register              — Register a student`);
+      console.log(`   POST   /extract-embeddings     — Extract face embeddings`);
+      console.log(`   GET    /get-students            — Fetch all students`);
+      console.log(`   POST   /log-entry               — Log access event`);
+      console.log(`   GET    /get-logs                — Fetch access logs`);
+      console.log(`   DELETE /delete-student/:id       — Delete a student`);
+      console.log(`   POST   /admin/register          — Admin registration + OTP`);
+      console.log(`   POST   /admin/login             — Admin login`);
+      console.log(`   POST   /admin/verify-otp        — Verify email OTP`);
+      console.log(`   POST   /admin/resend-otp        — Resend OTP (60s cooldown)`);
+      console.log(`   POST   /clear-logs              — Batch delete all logs\n`);
     });
   } catch (error) {
     console.error('💀 Server failed to start:', error.message);
