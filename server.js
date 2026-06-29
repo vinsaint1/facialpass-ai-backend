@@ -1332,17 +1332,13 @@ async function startServer() {
   console.log('[SYSTEM] Starting backend server...');
 
   try {
-    // Start Express server FIRST so cloud health checks pass immediately
     const server = app.listen(PORT, () => {
       console.log(`[SYSTEM] Server running on http://localhost:${PORT}`);
       console.log('[SYSTEM] Endpoints ready for incoming requests.');
-
-      // Prevent Localtunnel socket hangs
       server.keepAliveTimeout = 120000;
       server.headersTimeout = 125000;
 
-      // Only start TCP proxy bridge in local/development mode
-      if (!process.env.RAILWAY_ENVIRONMENT && !process.env.RENDER) {
+      if (!process.env.RAILWAY_ENVIRONMENT && !process.env.RENDER && !process.env.RAILWAY_PROJECT_ID) {
         try {
           const net = require('net');
           const PROXY_PORT = 5006;
@@ -1357,23 +1353,26 @@ async function startServer() {
             console.log(`[PROXY] TCP Proxy Bridge running on port ${PROXY_PORT} -> ${PORT}\n`);
           });
         } catch (e) {
-          console.warn('[PROXY] TCP Proxy Bridge skipped:', e.message);
+          console.warn('[PROXY] Proxy skipped:', e.message);
         }
       }
     });
 
-    // Load AI models AFTER port is bound (so cloud platforms see the server as healthy)
-    console.log('[SYSTEM] Loading AI models in background...');
-    await loadModels();
-
-    // Pre-warm employee cache so first scan is instant
-    console.log('[DB] Pre-loading employee database...');
-    await getEmployeesFromCache();
-
-    console.log('[SYSTEM] All systems ready.\n');
+    const isCloud = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.RAILWAY_PROJECT_ID);
+    if (isCloud) {
+      console.log('[SYSTEM] Cloud mode — AI models will load on first face scan.');
+    } else {
+      try {
+        await loadModels();
+        console.log('[DB] Pre-loading employee database...');
+        await getEmployeesFromCache();
+        console.log('[SYSTEM] All systems ready.\n');
+      } catch (err) {
+        console.warn('[WARN] Model pre-load failed, will retry on demand:', err.message);
+      }
+    }
   } catch (error) {
-    console.error('[ERROR] Server failed to start:', error.message);
-    process.exit(1);
+    console.error('[ERROR] Server startup error:', error.message);
   }
 }
 
