@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FacialPass AI — Biometric Work Attendance Manager</title>
+    <meta name="description" content="A secure, privacy-first biometric access control and work attendance manager. Powered by face-api.js neural network and Firebase Firestore.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Light Theme Tokens */
+            --bg: #F8FAFC;
+            --card: #FFFFFF;
+            --card-border: #E2E8F0;
+            --text: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #94A3B8;
+            --primary: #1E3A8A;
+            --primary-light: #3B82F6;
+            --primary-bg: #EFF6FF;
+            --primary-bg-text: #1E3A8A;
+            --danger: #D32F2F;
+            --danger-bg: #FFEBEE;
+            --success: #10B981;
+            --success-bg: #ECFDF5;
+            --warning: #F59E0B;
+            --warning-bg: #FEF3C7;
+            --divider: #F1F5F9;
+            --shadow: rgba(0, 0, 0, 0.05);
+            --header-bg: #FFFFFF;
+            --header-border: #E2E8F0;
+            --status-bar: dark;
+        }
+
+        body.dark-theme {
+            /* Dark Theme Tokens */
+            --bg: #090D16;
+            --card: #111827;
+            --card-border: #1F2937;
+            --text: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #64748B;
+            --primary: #3B82F6;
+            --primary-light: #60A5FA;
+            --primary-bg: #1E3A8A;
+            --primary-bg-text: #93C5FD;
+            --danger: #EF5350;
+            --danger-bg: #2E1111;
+            --success: #10B981;
+            --success-bg: #061A11;
+            --warning: #FBBF24;
+            --warning-bg: #2E2211;
+            --divider: #1F2937;
+            --shadow: rgba(0, 0, 0, 0.4);
+            --header-bg: #0B0F19;
+            --header-border: #1F2937;
+            --status-bar: light;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Navigation */
+        nav {
+            padding: 16px 0;
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--header-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .nav-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+            font-size: 20px;
+            color: var(--text);
+            text-decoration: none;
+            gap: 8px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background-color: var(--primary-bg);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: var(--primary);
+            transition: background-color 0.3s ease;
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background-color: var(--divider);
+        }
+
+        .theme-toggle .sun-icon { display: none; }
+        .theme-toggle .moon-icon { display: block; }
+        body.dark-theme .theme-toggle .sun-icon { display: block; }
+        body.dark-theme .theme-toggle .moon-icon { display: none; }
+
+        .icon-svg {
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        .btn {
+            background-color: var(--primary);
+            color: #FFFFFF;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text);
+        }
+
+        .btn-outline:hover {
+            background-color: var(--divider);
+        }
+
+        /* Hero Layout Split */
+        .hero-split {
+            display: flex;
+            align-items: center;
+            gap: 60px;
+            padding: 80px 0 60px 0;
+        }
+
+        .hero-left {
+            flex: 1.2;
+        }
+
+        .hero-right {
+            flex: 0.8;
+            display: flex;
+            justify-content: center;
+        }
+
+        .badge-pill {
+            background-color: var(--primary-bg);
+            color: var(--primary-bg-text);
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.3s ease;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--primary);
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(30, 58, 138, 0.4); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(30, 58, 138, 0); }
+            100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(30, 58, 138, 0); }
+        }
+
+        .hero-left h1 {
+            font-size: 44px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            line-height: 1.2;
+            margin-bottom: 20px;
+        }
+
+        .hero-left h1 span {
+            color: var(--primary);
+        }
+
+        .hero-left p {
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+            max-width: 580px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 40px;
+        }
+
+        /* CSS Phone Mockup representing Mobile Client Screen UI */
+        .phone-mockup {
+            width: 320px;
+            height: 640px;
+            background-color: #000000;
+            border: 12px solid #222222;
+            border-radius: 40px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Notch */
+        .phone-mockup::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            height: 24px;
+            background-color: #222222;
+            border-bottom-left-radius: 16px;
+            border-bottom-right-radius: 16px;
+            z-index: 10;
+        }
+
+        /* Mock Mobile Screen Content */
+        .mock-screen {
+            flex: 1;
+            background-color: var(--bg);
+            padding: 36px 16px 16px 16px;
+            display: flex;
+            flex-direction: column;
+            transition: background-color 0.3s ease;
+        }
+
+        .mock-header {
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            display: flex;
+            height: 44px;
+            border-bottom-width: 1px;
+            border-bottom-color: var(--card-border);
+            border-bottom-style: solid;
+            margin-bottom: 12px;
+        }
+
+        .mock-header-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text);
+            margin: 0 auto;
+        }
+
+        .mock-welcome {
+            margin-bottom: 16px;
+        }
+
+        .mock-welcome-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .mock-welcome-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Simulated Mobile App Hero Card */
+        .mock-hero-card {
+            background-color: #0A182F;
+            border: 1px solid #1E3A8A;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 20px;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .mock-hero-title {
+            color: #F8FAFC;
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .mock-hero-title-sec {
+            color: #60A5FA;
+            font-size: 16px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+
+        .mock-hero-body {
+            color: #94A3B8;
+            font-size: 10px;
+        }
+
+        /* Simulated Mobile Roster/Action Card */
+        .mock-action-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .mock-action-card {
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .mock-action-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background-color: var(--primary-bg);
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+        }
+
+        .mock-action-info {
+            flex: 1;
+        }
+
+        .mock-action-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 2px;
+        }
+
+        .mock-action-desc {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* Server Status Panel */
+        .server-status-section {
+            padding: 30px;
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            box-shadow: 0 4px 12px var(--shadow);
+            margin-bottom: 60px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .server-status-title {
+            font-size: 15px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .status-card {
+            background-color: var(--bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .status-card-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .status-card-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .status-card-value.active {
+            color: var(--primary);
+        }
+
+        /* Features Section */
+        .features-section {
+            padding: 40px 0 80px 0;
+            border-top: 1px solid var(--card-border);
+            transition: border-color 0.3s ease;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .section-header h2 {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 12px;
+        }
+
+        .section-header p {
+            color: var(--text-secondary);
+            font-size: 15px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .feature-card {
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 10px var(--shadow);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+
+        .feature-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background-color: var(--primary-bg);
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            margin-bottom: 18px;
+            transition: background-color 0.3s ease;
+        }
+
+        .feature-card h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--card-border);
+            padding: 40px 0;
+            background-color: var(--header-bg);
+            color: var(--text-secondary);
+            font-size: 13px;
+            text-align: center;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .footer-logo {
+            font-weight: 700;
+            color: var(--text);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .footer-logo span {
+            color: var(--primary);
+        }
+
+        /* Responsive Layouts */
+        @media (max-width: 992px) {
+            .hero-split {
+                flex-direction: column;
+                text-align: center;
+                gap: 40px;
+            }
+            .hero-left p {
+                margin: 0 auto 32px auto;
+            }
+            .hero-buttons {
+                justify-content: center;
+            }
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body class="dark-theme"> <!-- Defaults to Dark Mode (Deep OLED Black) -->
+
+    <!-- Navigation -->
+    <nav>
+        <div class="container nav-content">
+            <a href="#" class="logo">
+                FacialPass AI
+            </a>
+            <div class="nav-actions">
+                <button class="theme-toggle" id="theme-toggle-btn" aria-label="Toggle Theme">
+                    <!-- Sun SVG -->
+                    <svg class="sun-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    <!-- Moon SVG -->
+                    <svg class="moon-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                </button>
+                <a href="/dashboard.html" class="btn" style="padding: 8px 16px; font-size: 13px;">HR Dashboard</a>
+                <a href="/get-employees" class="btn btn-outline" style="padding: 8px 16px; font-size: 13px;" target="_blank">Roster API</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Hero Split -->
+        <section class="hero-split">
+            <div class="hero-left">
+                <h1>Secure Biometric <span>Work Attendance</span></h1>
+                <p>FacialPass AI integrates facial recognition biometrics with leave requests, shifts schedules, and payroll analytics. Storing only irreversible 128-float mathematical descriptors to preserve employee privacy.</p>
+                <div class="hero-buttons">
+                    <a href="#features-panel" class="btn">Explore Features</a>
+                    <a href="/get-logs" class="btn btn-outline" target="_blank">Access Event Logs</a>
+                </div>
+            </div>
+            
+            <div class="hero-right">
+                <!-- CSS Interactive Mockup of Mobile Application -->
+                <div class="phone-mockup">
+                    <div class="mock-screen">
+                        <!-- Simulated Header -->
+                        <div class="mock-header">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                            <span class="mock-header-title">FacialPass AI</span>
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                        </div>
+                        
+                        <!-- Simulated Greetings -->
+                        <div class="mock-welcome">
+                            <div class="mock-welcome-title">Welcome, Admin</div>
+                            <div class="mock-welcome-sub">AI Powered Attendance Manager</div>
+                        </div>
+                        
+                        <!-- Simulated App Hero Banner -->
+                        <div class="mock-hero-card">
+                            <div class="mock-hero-title">Work Attendance</div>
+                            <div class="mock-hero-title-sec">Made Simple</div>
+                            <div class="mock-hero-body">Onboard employees or scan to clock in securely.</div>
+                        </div>
+                        
+                        <!-- Simulated Action Cards -->
+                        <div class="mock-action-list">
+                            <div class="mock-action-card">
+                                <div class="mock-action-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="16" y1="11" x2="22" y2="11"></line></svg>
+                                </div>
+                                <div class="mock-action-info">
+                                    <div class="mock-action-title">Onboard Employee</div>
+                                    <div class="mock-action-desc">Enroll face biometric profile</div>
+                                </div>
+                            </div>
+                            <div class="mock-action-card">
+                                <div class="mock-action-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                </div>
+                                <div class="mock-action-info">
+                                    <div class="mock-action-title">Clock In / Out</div>
+                                    <div class="mock-action-desc">Verify face attendance log</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- Features Grid -->
+        <section class="features-section" id="features-panel">
+            <div class="section-header">
+                <h2>System Capabilities</h2>
+                <p>Designed under object-oriented analysis principles and strict biometric security standards.</p>
+            </div>
+            <div class="features-grid">
+                <!-- Card 1 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z"></path><path d="M12 8v8M8 12h8"></path></svg>
+                    </div>
+                    <h3>Face Detection Neural Net</h3>
+                    <p>Loads SSD MobileNetV1 neural network weights on the backend to detect human faces within milliseconds.</p>
+                </div>
+                <!-- Card 2 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 11"></polyline><path d="M22 2L15 9"></path></svg>
+                    </div>
+                    <h3>Landmarks Alignment</h3>
+                    <p>Extracts 68 landmark coordinates to map eyes, nose, and lips positions, compensating for head tilts and facial rotation.</p>
+                </div>
+                <!-- Card 3 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>
+                    </div>
+                    <h3>128-Float Descriptor</h3>
+                    <p>Compiles biometric maps into secure 128-float mathematical vectors. No raw employee photos are stored in the database.</p>
+                </div>
+                <!-- Card 4 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><path d="M11 18H8a2 2 0 0 1-2-2V9"></path></svg>
+                    </div>
+                    <h3>Euclidean Distance Classifier</h3>
+                    <p>Compares live face embeddings against stored records using high-dimensional Euclidean space matching with a strict 0.6 threshold.</p>
+                </div>
+                <!-- Card 5 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    </div>
+                    <h3>Shift Schedule Manager</h3>
+                    <p>Enforces working shifts, tracking calendar slots, holidays, and active leaves to automatically mark logs compliance.</p>
+                </div>
+                <!-- Card 6 -->
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                    </div>
+                    <h3>Absenteeism Risk Alerts</h3>
+                    <p>Features a predictive analytics engine that analyzes attendance frequencies to warn managers of high chronic absence risks.</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <a href="#" class="footer-logo">
+                FacialPass AI
+            </a>
+            <p>Design and Implementation of a Work Attendance Manager with AI Integration</p>
+        </div>
+    </footer>
+
+    <script>
+        // Toggle Dark / Light Theme (Matches Context Preference)
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        themeBtn.addEventListener('click', () => {
+            document.body.classList.toggle('dark-theme');
+        });
+
+
+    </script>
+</body>
+</html>

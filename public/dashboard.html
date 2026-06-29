@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Monthly Attendance Summary — FacialPass AI</title>
+    <meta name="description" content="Professional HR dashboard for monthly employee attendance summaries and analytics. Powered by FacialPass AI.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Chart.js (Local with CDN fallback) -->
+    <script src="chart.js"></script>
+    <script>
+        if (typeof Chart === 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+            document.head.appendChild(script);
+        }
+    </script>
+    <style>
+        :root {
+            /* Light Theme Tokens */
+            --bg: #F8FAFC;
+            --card: #FFFFFF;
+            --card-border: #E2E8F0;
+            --text: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #94A3B8;
+            --primary: #1E3A8A;
+            --primary-light: #3B82F6;
+            --primary-bg: #EFF6FF;
+            --primary-bg-text: #1E3A8A;
+            --danger: #D32F2F;
+            --danger-bg: #FFEBEE;
+            --danger-highlight: rgba(211, 47, 47, 0.08);
+            --success: #10B981;
+            --success-bg: #ECFDF5;
+            --success-highlight: rgba(16, 185, 129, 0.08);
+            --warning: #F59E0B;
+            --warning-bg: #FEF3C7;
+            --divider: #F1F5F9;
+            --shadow: rgba(0, 0, 0, 0.05);
+            --header-bg: #FFFFFF;
+            --header-border: #E2E8F0;
+            --status-bar: dark;
+        }
+
+        body.dark-theme {
+            /* Dark Theme Tokens */
+            --bg: #090D16;
+            --card: #111827;
+            --card-border: #1F2937;
+            --text: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #64748B;
+            --primary: #3B82F6;
+            --primary-light: #60A5FA;
+            --primary-bg: #1E3A8A;
+            --primary-bg-text: #93C5FD;
+            --danger: #EF5350;
+            --danger-bg: #2E1111;
+            --danger-highlight: rgba(239, 83, 80, 0.15);
+            --success: #10B981;
+            --success-bg: #061A11;
+            --success-highlight: rgba(16, 185, 129, 0.15);
+            --warning: #FBBF24;
+            --warning-bg: #2E2211;
+            --divider: #1F2937;
+            --shadow: rgba(0, 0, 0, 0.4);
+            --header-bg: #0B0F19;
+            --header-border: #1F2937;
+            --status-bar: light;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+            padding-bottom: 60px;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Navigation */
+        nav {
+            padding: 16px 0;
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--header-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .nav-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+            font-size: 20px;
+            color: var(--text);
+            text-decoration: none;
+            gap: 8px;
+        }
+
+        .logo-back {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            background: none;
+            color: var(--text);
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .logo-back:hover {
+            background-color: var(--divider);
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background-color: var(--divider);
+        }
+
+        .theme-toggle .sun-icon { display: none; }
+        .theme-toggle .moon-icon { display: block; }
+        body.dark-theme .theme-toggle .sun-icon { display: block; }
+        body.dark-theme .theme-toggle .moon-icon { display: none; }
+
+        /* Dashboard Header & Filters */
+        .dashboard-header {
+            margin-top: 32px;
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .dashboard-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .dashboard-title-row h1 {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .dashboard-title-row p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Filter Controls */
+        .filters-panel {
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            box-shadow: 0 4px 10px var(--shadow);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        .filter-select, .filter-input {
+            background-color: var(--bg);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .filter-select:focus, .filter-input:focus {
+            border-color: var(--primary);
+        }
+
+        .btn {
+            background-color: var(--primary);
+            color: #FFFFFF;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-secondary {
+            background-color: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--divider);
+        }
+
+        /* Section 1: Summary Cards Grid */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .summary-card {
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 10px var(--shadow);
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+
+        .summary-card-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .summary-card-value {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1.2;
+        }
+
+        .summary-card-subtext {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Large highlight for Overall Rate */
+        .summary-card.rate-card {
+            background: linear-gradient(135deg, var(--primary-bg) 0%, var(--card) 100%);
+            border-color: var(--primary-light);
+        }
+
+        .summary-card.rate-card .summary-card-value {
+            color: var(--primary-bg-text);
+        }
+
+        /* Section 6: Charts Layout */
+        .charts-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .charts-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart-container-card {
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 10px var(--shadow);
+            display: flex;
+            flex-direction: column;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .chart-header {
+            margin-bottom: 16px;
+        }
+
+        .chart-title {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        .chart-body {
+            position: relative;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 220px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Section 2: Table Section */
+        .report-section {
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 10px var(--shadow);
+            margin-bottom: 24px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        th {
+            padding: 12px 16px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            border-bottom: 2px solid var(--card-border);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            user-select: none;
+        }
+
+        th.sortable {
+            cursor: pointer;
+        }
+
+        th.sortable:hover {
+            color: var(--primary);
+        }
+
+        th.sortable::after {
+            content: ' ↕';
+            font-size: 10px;
+            opacity: 0.5;
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--divider);
+            color: var(--text);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr.hoverable:hover td {
+            background-color: var(--divider);
+        }
+
+        /* Highlight States */
+        tr.perfect-attendance {
+            background-color: var(--success-highlight);
+        }
+
+        tr.low-attendance {
+            background-color: var(--danger-highlight);
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-block;
+        }
+
+        .badge-success {
+            background-color: var(--success-bg);
+            color: var(--success);
+        }
+
+        .badge-danger {
+            background-color: var(--danger-bg);
+            color: var(--danger);
+        }
+
+        .badge-warning {
+            background-color: var(--warning-bg);
+            color: var(--warning);
+        }
+
+        /* Side-by-Side tables for sections 4 and 5 */
+        .double-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .double-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Empty & Error States */
+        .no-data-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 24px;
+            text-align: center;
+            background-color: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            box-shadow: 0 4px 10px var(--shadow);
+        }
+
+        .no-data-icon {
+            font-size: 48px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .no-data-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .no-data-desc {
+            font-size: 14px;
+            color: var(--text-secondary);
+            max-width: 400px;
+        }
+
+        .pulse {
+            animation: pulse-animation 2s infinite;
+        }
+
+        @keyframes pulse-animation {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="dark-theme">
+
+    <!-- Navigation Bar Removed for Native WebView integration -->
+
+    <div class="container">
+        <!-- Dashboard Header -->
+        <header class="dashboard-header">
+            <div class="dashboard-title-row">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 42px; height: 42px; background: rgba(59, 130, 246, 0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--primary);">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 style="margin: 0; line-height: 1;">Monthly HR Attendance</h1>
+                        <p style="margin-top: 4px;">Track general logs, approved leaves, and company attendance statistics</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters Row -->
+            <div class="filters-panel">
+                <div class="filter-group">
+                    <label class="filter-label" for="year-select">Year</label>
+                    <select class="filter-select" id="year-select">
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                        <option value="2024">2024</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label" for="month-select">Month</label>
+                    <select class="filter-select" id="month-select">
+                        <option value="01">January</option>
+                        <option value="02">February</option>
+                        <option value="03">March</option>
+                        <option value="04">April</option>
+                        <option value="05">May</option>
+                        <option value="06">June</option>
+                        <option value="07">July</option>
+                        <option value="08">August</option>
+                        <option value="09">September</option>
+                        <option value="10">October</option>
+                        <option value="11">November</option>
+                        <option value="12">December</option>
+                    </select>
+                </div>
+                <button class="btn" id="filter-btn" style="align-self: flex-end; height: 38px;">
+                    Refresh Analytics
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Content Container -->
+        <main id="main-content">
+            <!-- Summary Cards Section -->
+            <section class="summary-grid" id="summary-cards">
+                <!-- Card 1 -->
+                <div class="summary-card">
+                    <div class="summary-card-label">Total Employees</div>
+                    <div class="summary-card-value" id="card-total-employees">-</div>
+                    <div class="summary-card-subtext">Active registered count</div>
+                </div>
+                <!-- Card 4 -->
+                <div class="summary-card">
+                    <div class="summary-card-label">Total Present</div>
+                    <div class="summary-card-value" id="card-total-present">-</div>
+                    <div class="summary-card-subtext">Days with at least 1 clock-in</div>
+                </div>
+                <!-- Card 6 -->
+                <div class="summary-card">
+                    <div class="summary-card-label">Late Arrivals</div>
+                    <div class="summary-card-value" id="card-late-arrivals">-</div>
+                    <div class="summary-card-subtext">Lateness count across sessions</div>
+                </div>
+                <!-- Card 7 -->
+                <div class="summary-card">
+                    <div class="summary-card-label">Early Departures</div>
+                    <div class="summary-card-value" id="card-early-departures">-</div>
+                    <div class="summary-card-subtext">Departed before end time</div>
+                </div>
+                <!-- Card 8 (Highlight Card) -->
+                <div class="summary-card rate-card">
+                    <div class="summary-card-label">Overall Rate</div>
+                    <div class="summary-card-value" id="card-attendance-rate">-%</div>
+                    <div class="summary-card-subtext">Present / Expected Ratio</div>
+                </div>
+            </section>
+
+            <!-- Visualizations Section -->
+            <section class="charts-row">
+                <!-- Trend Line Chart -->
+                <div class="chart-container-card">
+                    <div class="chart-header">
+                        <div class="chart-title">Daily Attendance Trend (%)</div>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+                <!-- Distribution Pie/Doughnut Chart -->
+                <div class="chart-container-card">
+                    <div class="chart-header">
+                        <div class="chart-title">Status Distribution</div>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+                <!-- Weekly Late Arrivals Bar Chart -->
+                <div class="chart-container-card">
+                    <div class="chart-header">
+                        <div class="chart-title">Weekly Late Arrivals</div>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="lateChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 2: Employee Attendance Report Table -->
+            <section class="report-section">
+                <div class="section-title">
+                    <span>Employee Attendance Details</span>
+                    <span style="font-size: 11px; text-transform: none; font-weight: normal; color: var(--text-muted);">
+                        * Highlighted: <span style="color: var(--success); font-weight: 700;">Green = 100%</span>, <span style="color: var(--danger); font-weight: 700;">Red < 80%</span>
+                    </span>
+                </div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Employee ID</th>
+                                <th>Employee Name</th>
+                                <th style="text-align: right;">Days Present</th>
+                                <th style="text-align: right;">Days Absent</th>
+                                <th style="text-align: right;">Late Days</th>
+                                <th style="text-align: right;">Leave Days</th>
+                                <th class="sortable" id="sort-rate-header" style="text-align: right;">Attendance %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="employee-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Side-by-Side Tables -->
+            <div class="double-grid">
+                <!-- Section 4: Top Attendance Performers -->
+                <section class="report-section" style="margin-bottom: 0;">
+                    <div class="section-title">Top Performers</div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Employee Name</th>
+                                    <th style="text-align: right;">Attendance %</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="top-performers-body">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Section 5: Employees Requiring Attention -->
+                <section class="report-section" style="margin-bottom: 0;">
+                    <div class="section-title" style="color: var(--danger);">Attention Required</div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Employee Name</th>
+                                    <th>Warning Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attention-body">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- No Data State (hidden by default) -->
+        <div class="no-data-container" id="no-data-state" style="display: none;">
+            <div class="no-data-icon">📊</div>
+            <div class="no-data-title">No Data Available</div>
+            <div class="no-data-desc">There are no attendance logs or registered employees for the selected month. Try switching filters or onboarding employees.</div>
+        </div>
+    </div>
+
+    <!-- Theme and Fetch logic -->
+    <script>
+        // Read theme from query param
+        const urlParams = new URLSearchParams(window.location.search);
+        const themeParam = urlParams.get('theme');
+        if (themeParam === 'dark') {
+            document.body.classList.add('dark-theme');
+        } else if (themeParam === 'light') {
+            document.body.classList.remove('dark-theme');
+        }
+
+        // Theme switching matching index.html
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', () => {
+                document.body.classList.toggle('dark-theme');
+                // Re-render charts to adjust text color for theme
+                renderCharts();
+            });
+        }
+
+        // Initialize selectors with current date
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonthStr = String(today.getMonth() + 1).padStart(2, '0');
+
+        document.getElementById('year-select').value = String(currentYear);
+        document.getElementById('month-select').value = currentMonthStr;
+
+        // Sorting state
+        let currentSortAsc = false;
+        let originalEmployeeData = [];
+
+        // Chart instances tracker to destroy previous ones
+        let chartInstances = {};
+
+        // Fetch and load data
+        async function fetchMonthlyData() {
+            const year = document.getElementById('year-select').value;
+            const month = document.getElementById('month-select').value;
+            const monthPrefix = `${year}-${month}`;
+
+            try {
+                const response = await fetch(`/api/reports/monthly?monthPrefix=${monthPrefix}&_t=${Date.now()}`, {
+                    headers: {
+                        'bypass-tunnel-reminder': 'true'
+                    }
+                });
+                const result = await response.json();
+
+                if (!result.success || !result.summary || result.summary.totalEmployees === 0) {
+                    showNoDataState(true);
+                    return;
+                }
+
+                showNoDataState(false);
+                originalEmployeeData = result.employeeReport || [];
+                renderSummary(result.summary);
+                renderEmployeeTable(originalEmployeeData);
+                renderTopPerformers(result.topPerformers);
+                renderRequiringAttention(result.requiringAttention);
+                
+                // Store chart data globally for chart rendering
+                window.chartData = {
+                    dailyTrend: result.dailyTrend,
+                    statusDistribution: result.statusDistribution,
+                    weeklyLates: result.weeklyLates
+                };
+
+                renderCharts();
+
+            } catch (err) {
+                console.error("Error fetching report data:", err);
+                showNoDataState(true);
+            }
+        }
+
+        function showNoDataState(show) {
+            const mainContent = document.getElementById('main-content');
+            const noDataState = document.getElementById('no-data-state');
+            if (show) {
+                mainContent.style.display = 'none';
+                noDataState.style.display = 'flex';
+            } else {
+                mainContent.style.display = 'block';
+                noDataState.style.display = 'none';
+            }
+        }
+
+        function renderSummary(summary) {
+            document.getElementById('card-total-employees').innerText = summary.totalEmployees;
+            document.getElementById('card-total-present').innerText = summary.presentDays;
+            document.getElementById('card-late-arrivals').innerText = summary.lateArrivals;
+            document.getElementById('card-early-departures').innerText = summary.earlyDepartures;
+            document.getElementById('card-attendance-rate').innerText = `${summary.attendanceRate.toFixed(2)}%`;
+        }
+
+        function renderEmployeeTable(employees) {
+            const tbody = document.getElementById('employee-table-body');
+            tbody.innerHTML = '';
+
+            if (employees.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No employees found.</td></tr>`;
+                return;
+            }
+
+            employees.forEach(emp => {
+                const tr = document.createElement('tr');
+                tr.className = 'hoverable';
+
+                // Highlighting requirements
+                if (emp.attendanceRate === 100) {
+                    tr.classList.add('perfect-attendance');
+                } else if (emp.attendanceRate < 80) {
+                    tr.classList.add('low-attendance');
+                }
+
+                tr.innerHTML = `
+                    <td style="font-weight: 600;">${emp.employeeId}</td>
+                    <td>${emp.name}</td>
+                    <td style="text-align: right;">${emp.presentDays}</td>
+                    <td style="text-align: right;">${emp.absentDays}</td>
+                    <td style="text-align: right;">${emp.lateDays}</td>
+                    <td style="text-align: right;">${emp.leaveDays}</td>
+                    <td style="text-align: right; font-weight: 700; color: ${emp.attendanceRate === 100 ? 'var(--success)' : (emp.attendanceRate < 80 ? 'var(--danger)' : 'inherit')}">
+                        ${emp.attendanceRate.toFixed(2)}%
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderTopPerformers(topPerformers) {
+            const tbody = document.getElementById('top-performers-body');
+            tbody.innerHTML = '';
+
+            if (topPerformers.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No performers.</td></tr>`;
+                return;
+            }
+
+            topPerformers.forEach(emp => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight: 600;">${emp.name}</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--success);">${emp.attendanceRate.toFixed(2)}%</td>
+                    <td><span class="badge badge-success">${emp.attendanceRate === 100 ? 'Perfect' : 'Top Performer'}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderRequiringAttention(requiringAttention) {
+            const tbody = document.getElementById('attention-body');
+            tbody.innerHTML = '';
+
+            if (requiringAttention.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="2" style="text-align: center; color: var(--success); font-weight: 600;">All employees meet attendance goals!</td></tr>`;
+                return;
+            }
+
+            requiringAttention.forEach(emp => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight: 600; color: var(--danger);">${emp.name}</td>
+                    <td><span class="badge badge-danger" style="white-space: normal; line-height: 1.4;">${emp.reason}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Render Chart.js visualisations
+        function renderCharts() {
+            if (typeof Chart === 'undefined') {
+                console.warn("Chart.js is not loaded. Skipping chart rendering.");
+                ['trendChart', 'statusChart', 'lateChart'].forEach(id => {
+                    const canvas = document.getElementById(id);
+                    if (canvas && canvas.parentElement) {
+                        canvas.style.display = 'none';
+                        const parent = canvas.parentElement;
+                        if (!parent.querySelector('.chart-fallback')) {
+                            const placeholder = document.createElement('div');
+                            placeholder.className = 'chart-fallback';
+                            placeholder.style.color = 'var(--text-muted)';
+                            placeholder.style.fontSize = '12px';
+                            placeholder.style.textAlign = 'center';
+                            placeholder.style.padding = '20px';
+                            placeholder.innerText = 'Visualizations unavailable';
+                            parent.appendChild(placeholder);
+                        }
+                    }
+                });
+                return;
+            }
+
+            try {
+                if (!window.chartData) return;
+
+            const isDark = document.body.classList.contains('dark-theme');
+            const textColor = isDark ? '#94A3B8' : '#475569';
+            const gridColor = isDark ? '#1F2937' : '#F1F5F9';
+
+            // Chart common options helper
+            const getChartOptions = (titleText) => ({
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: textColor,
+                            font: { family: 'Inter', size: 11 }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: gridColor },
+                        ticks: { color: textColor, font: { family: 'Inter', size: 10 } }
+                    },
+                    y: {
+                        grid: { color: gridColor },
+                        ticks: { color: textColor, font: { family: 'Inter', size: 10 } }
+                    }
+                }
+            });
+
+            // 1. Trend Line Chart
+            if (chartInstances.trend) chartInstances.trend.destroy();
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            chartInstances.trend = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: window.chartData.dailyTrend.labels.map(l => l.substring(8)), // only day number
+                    datasets: [{
+                        label: 'Attendance %',
+                        data: window.chartData.dailyTrend.data,
+                        borderColor: isDark ? '#3B82F6' : '#1E3A8A',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    ...getChartOptions('Daily Attendance Trend'),
+                    scales: {
+                        x: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor },
+                            title: { display: true, text: 'Day of Month', color: textColor, font: { size: 11, weight: 'bold' } }
+                        },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor },
+                            min: 0,
+                            max: 100,
+                            title: { display: true, text: 'Rate (%)', color: textColor, font: { size: 11, weight: 'bold' } }
+                        }
+                    }
+                }
+            });
+
+            // 2. Status Distribution Doughnut Chart
+            if (chartInstances.status) chartInstances.status.destroy();
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            const dist = window.chartData.statusDistribution;
+            chartInstances.status = new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Present', 'Absent', 'Sick Leave', 'Annual Leave', 'Remote Work'],
+                    datasets: [{
+                        data: [dist.present, dist.absent, dist.sickLeave, dist.annualLeave, dist.remoteWork],
+                        backgroundColor: [
+                            '#10B981', // green
+                            '#EF5350', // red
+                            '#FBBF24', // yellow
+                            '#60A5FA', // blue
+                            '#8B5CF6'  // purple
+                        ],
+                        borderColor: isDark ? '#111827' : '#FFFFFF',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: textColor,
+                                boxWidth: 12,
+                                font: { family: 'Inter', size: 11 }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 3. Weekly Late Arrivals Bar Chart
+            if (chartInstances.late) chartInstances.late.destroy();
+            const lateCtx = document.getElementById('lateChart').getContext('2d');
+            chartInstances.late = new Chart(lateCtx, {
+                type: 'bar',
+                data: {
+                    labels: window.chartData.weeklyLates.labels,
+                    datasets: [{
+                        label: 'Late Arrivals',
+                        data: window.chartData.weeklyLates.data,
+                        backgroundColor: '#F59E0B',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    ...getChartOptions('Weekly Late Arrivals'),
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: textColor } },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { 
+                                color: textColor,
+                                stepSize: 1,
+                                precision: 0
+                            }
+                        }
+                    }
+                }
+            });
+            } catch (err) {
+                console.error("Error rendering charts:", err);
+            }
+        }
+
+        // Sorting Column listener
+        document.getElementById('sort-rate-header').addEventListener('click', () => {
+            currentSortAsc = !currentSortAsc;
+            const sorted = [...originalEmployeeData].sort((a, b) => {
+                return currentSortAsc 
+                    ? a.attendanceRate - b.attendanceRate 
+                    : b.attendanceRate - a.attendanceRate;
+            });
+            renderEmployeeTable(sorted);
+        });
+
+        // Trigger loading on load and filter refresh
+        document.getElementById('filter-btn').addEventListener('click', fetchMonthlyData);
+        window.addEventListener('load', fetchMonthlyData);
+    </script>
+</body>
+</html>
