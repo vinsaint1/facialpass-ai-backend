@@ -1317,6 +1317,11 @@ app.get('/api/analytics/employee/:employeeId', async (req, res) => {
   }
 });
 
+// Health check for Railway/Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', modelsLoaded: true, timestamp: new Date().toISOString() });
+});
+
 // Health check and Homepage
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -1327,37 +1332,45 @@ async function startServer() {
   console.log('[SYSTEM] Starting backend server...');
 
   try {
-    // Load AI models before accepting any requests
+    // Start Express server FIRST so cloud health checks pass immediately
+    const server = app.listen(PORT, () => {
+      console.log(`[SYSTEM] Server running on http://localhost:${PORT}`);
+      console.log('[SYSTEM] Endpoints ready for incoming requests.');
+
+      // Prevent Localtunnel socket hangs
+      server.keepAliveTimeout = 120000;
+      server.headersTimeout = 125000;
+
+      // Only start TCP proxy bridge in local/development mode
+      if (!process.env.RAILWAY_ENVIRONMENT && !process.env.RENDER) {
+        try {
+          const net = require('net');
+          const PROXY_PORT = 5006;
+          const proxy = net.createServer((clientSocket) => {
+            const targetSocket = net.connect(PORT, '127.0.0.1');
+            clientSocket.pipe(targetSocket);
+            targetSocket.pipe(clientSocket);
+            clientSocket.on('error', () => {});
+            targetSocket.on('error', () => {});
+          });
+          proxy.listen(PROXY_PORT, '127.0.0.1', () => {
+            console.log(`[PROXY] TCP Proxy Bridge running on port ${PROXY_PORT} -> ${PORT}\n`);
+          });
+        } catch (e) {
+          console.warn('[PROXY] TCP Proxy Bridge skipped:', e.message);
+        }
+      }
+    });
+
+    // Load AI models AFTER port is bound (so cloud platforms see the server as healthy)
+    console.log('[SYSTEM] Loading AI models in background...');
     await loadModels();
 
     // Pre-warm employee cache so first scan is instant
     console.log('[DB] Pre-loading employee database...');
     await getEmployeesFromCache();
 
-    // Start Express server
-    const server = app.listen(PORT, () => {
-      console.log(`[SYSTEM] Server running on http://localhost:${PORT}`);
-
-      // Prevent Localtunnel socket hangs
-      server.keepAliveTimeout = 120000;
-      server.headersTimeout = 125000;
-
-      console.log('[SYSTEM] Endpoints ready for incoming requests.');
-
-      // Start TCP proxy bridge on port 5006
-      const net = require('net');
-      const PROXY_PORT = 5006;
-      const proxy = net.createServer((clientSocket) => {
-        const targetSocket = net.connect(PORT, '127.0.0.1');
-        clientSocket.pipe(targetSocket);
-        targetSocket.pipe(clientSocket);
-        clientSocket.on('error', () => {});
-        targetSocket.on('error', () => {});
-      });
-      proxy.listen(PROXY_PORT, '127.0.0.1', () => {
-        console.log(`[PROXY] TCP Proxy Bridge running on port ${PROXY_PORT} -> ${PORT}\n`);
-      });
-    });
+    console.log('[SYSTEM] All systems ready.\n');
   } catch (error) {
     console.error('[ERROR] Server failed to start:', error.message);
     process.exit(1);
