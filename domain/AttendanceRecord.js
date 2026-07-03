@@ -171,7 +171,9 @@ class AttendanceRecord {
   }
 
   async save() {
-    await db.collection('attendance_logs').doc(this.logId).set({
+    const cleanEmail = (this.adminEmail || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const colName = cleanEmail ? `attendance_logs_${cleanEmail}` : 'attendance_logs';
+    await db.collection(colName).doc(this.logId).set({
       logId: this.logId,
       employeeId: this.employeeId,
       date: this.date,
