@@ -44,10 +44,10 @@ if (fs.existsSync(sourceDir)) {
   }
 
   const needed = [
-    'ssd_mobilenetv1_model-weights_manifest.json',
-    'ssd_mobilenetv1_model.bin',
-    'face_landmark_68_model-weights_manifest.json',
-    'face_landmark_68_model.bin',
+    'tiny_face_detector_model-weights_manifest.json',
+    'tiny_face_detector_model.bin',
+    'face_landmark_68_tiny_model-weights_manifest.json',
+    'face_landmark_68_tiny_model.bin',
     'face_recognition_model-weights_manifest.json',
     'face_recognition_model.bin',
   ];
