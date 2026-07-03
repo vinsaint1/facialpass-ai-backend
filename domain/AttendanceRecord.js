@@ -20,13 +20,17 @@ class AttendanceRecord {
     this.adminEmail = adminEmail || '';
   }
 
-  static async clockIn(employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTimeStr, adminEmail = '', workHoursEnabled = false) {
+  static async clockIn(employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTimeStr, adminEmail = '', workHoursEnabled = false, timezoneOffset = 0) {
     const now = captureTimeStr ? new Date(captureTimeStr) : new Date();
     
+    // Calculate client local time details timezone-safely
+    const clientLocal = new Date(now.getTime() - (timezoneOffset * 60 * 1000));
+    const dateStr = clientLocal.toISOString().split('T')[0];
+    const nowMinutes = clientLocal.getUTCHours() * 60 + clientLocal.getUTCMinutes();
+
     if (workHoursEnabled && workHoursStart && workHoursEnd) {
       const [startH, startM] = workHoursStart.split(':').map(Number);
       const [endH, endM] = workHoursEnd.split(':').map(Number);
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
       const startMinutes = startH * 60 + startM;
       const endMinutes = endH * 60 + endM;
       
@@ -35,8 +39,6 @@ class AttendanceRecord {
       }
     }
 
-    const dateStr = getLocalDateString(now);
-    
     // Fetch employee to resolve parent adminEmail (tenancy)
     const Employee = require('./Employee');
     const emp = await Employee.getById(employeeId, adminEmail);
@@ -73,16 +75,12 @@ class AttendanceRecord {
     let latenessMinutes = 0;
     
     if (workHoursStart) {
-      const [schedH, schedM] = workHoursStart.split(':').map(Number);
-      const schedTime = new Date(now);
-      schedTime.setHours(schedH, schedM, 0, 0);
+      const [startH, startM] = workHoursStart.split(':').map(Number);
+      const startMinutes = startH * 60 + startM;
       
-      // 5 minute grace period for clocking in
-      const graceTime = new Date(schedTime.getTime() + 5 * 60000);
-      
-      if (now > graceTime) {
+      if (nowMinutes > startMinutes + 5) {
         status = 'late';
-        latenessMinutes = Math.floor((now - schedTime) / 60000);
+        latenessMinutes = nowMinutes - startMinutes;
       }
     }
 
@@ -91,20 +89,23 @@ class AttendanceRecord {
       logId, employeeId, dateStr, now, null, status, 0, faceDistanceScore, resolvedAdminEmail
     );
     
-    // Store latenessMinutes temporarily for the object if we want
     record.latenessMinutes = latenessMinutes;
     
     await record.save();
     return record;
   }
 
-  static async clockOut(employeeId, workHoursEnd, adminEmail = '', workHoursEnabled = false, workHoursStart = '') {
+  static async clockOut(employeeId, workHoursEnd, adminEmail = '', workHoursEnabled = false, workHoursStart = '', timezoneOffset = 0) {
     const now = new Date();
+    
+    // Calculate client local time details timezone-safely
+    const clientLocal = new Date(now.getTime() - (timezoneOffset * 60 * 1000));
+    const dateStr = clientLocal.toISOString().split('T')[0];
+    const nowMinutes = clientLocal.getUTCHours() * 60 + clientLocal.getUTCMinutes();
     
     if (workHoursEnabled && workHoursStart && workHoursEnd) {
       const [startH, startM] = workHoursStart.split(':').map(Number);
       const [endH, endM] = workHoursEnd.split(':').map(Number);
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
       const startMinutes = startH * 60 + startM;
       const endMinutes = endH * 60 + endM;
       
@@ -113,8 +114,6 @@ class AttendanceRecord {
       }
     }
 
-    const dateStr = getLocalDateString(now);
-    
     const cleanEmail = adminEmail.toLowerCase().replace(/[^a-z0-9]/g, '_');
     const colName = cleanEmail ? `attendance_logs_${cleanEmail}` : 'attendance_logs';
 
@@ -139,25 +138,16 @@ class AttendanceRecord {
     }
 
     const data = activeDoc.data();
-
     const clockInDate = data.clockInTime.toDate ? data.clockInTime.toDate() : new Date(data.clockInTime);
     let diffHours = (now - clockInDate) / 3600000;
-    
-    // Ensure diffHours is never negative just in case
     diffHours = Math.max(0, diffHours);
     
     let currentStatus = data.status;
     
-    // 5 minute grace period for clock out
     if (workHoursEnd) {
       const [endH, endM] = workHoursEnd.split(':').map(Number);
-      const schedEndTime = new Date(now);
-      schedEndTime.setHours(endH, endM, 0, 0);
-      
-      // "5 minutes after work hours end is considered late"
-      const graceTimeOut = new Date(schedEndTime.getTime() + 5 * 60000);
-      
-      if (now > graceTimeOut) {
+      const endMinutes = endH * 60 + endM;
+      if (nowMinutes > endMinutes + 5) {
         currentStatus = 'late';
       }
     }

@@ -41,6 +41,11 @@ const getLocalDateString = (d = new Date()) => {
   return localDate.toISOString().split('T')[0];
 };
 
+const getClientLocalDateString = (d = new Date(), clientOffset = 0) => {
+  const localDate = new Date(d.getTime() - (clientOffset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
+
 
 // Initialize Express app
 const app = express();
@@ -324,7 +329,8 @@ app.post('/verify-face', upload.single('image'), async (req, res) => {
 
     let isClockedIn = false;
     if (isMatch && db) {
-      const todayStr = getLocalDateString(new Date());
+      const clientOffset = parseInt(req.headers['x-timezone-offset'] || '0', 10);
+      const todayStr = getClientLocalDateString(new Date(), clientOffset);
       const activeSession = await db.collection(getColName('attendance_logs', adminEmail))
         .where('employeeId', '==', bestMatch.employeeId)
         .where('date', '==', todayStr)
@@ -399,8 +405,9 @@ app.post('/api/attendance/clock-in', async (req, res) => {
     if (!employeeId) return res.status(400).json({ success: false, error: 'employeeId required' });
     
     const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
+    const clientOffset = parseInt(req.headers['x-timezone-offset'] || '0', 10);
     const record = await AttendanceRecord.clockIn(
-      employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTime, adminEmail, !!workHoursEnabled
+      employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTime, adminEmail, !!workHoursEnabled, clientOffset
     );
     res.json({ success: true, message: 'Clocked in successfully', record });
   } catch (error) {
@@ -415,8 +422,9 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     if (!employeeId) return res.status(400).json({ success: false, error: 'employeeId required' });
     
     const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
+    const clientOffset = parseInt(req.headers['x-timezone-offset'] || '0', 10);
     const record = await AttendanceRecord.clockOut(
-      employeeId, workHoursEnd, adminEmail, !!workHoursEnabled, workHoursStart
+      employeeId, workHoursEnd, adminEmail, !!workHoursEnabled, workHoursStart, clientOffset
     );
     res.json({ success: true, message: 'Clocked out successfully', record });
   } catch (error) {
