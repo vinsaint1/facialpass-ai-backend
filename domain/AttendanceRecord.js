@@ -20,8 +20,21 @@ class AttendanceRecord {
     this.adminEmail = adminEmail || '';
   }
 
-  static async clockIn(employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTimeStr, adminEmail = '') {
+  static async clockIn(employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTimeStr, adminEmail = '', workHoursEnabled = false) {
     const now = captureTimeStr ? new Date(captureTimeStr) : new Date();
+    
+    if (workHoursEnabled && workHoursStart && workHoursEnd) {
+      const [startH, startM] = workHoursStart.split(':').map(Number);
+      const [endH, endM] = workHoursEnd.split(':').map(Number);
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const startMinutes = startH * 60 + startM;
+      const endMinutes = endH * 60 + endM;
+      
+      if (nowMinutes < startMinutes || nowMinutes > endMinutes) {
+        throw new Error("Clock-in is blocked outside work hours (Time-Gate active)");
+      }
+    }
+
     const dateStr = getLocalDateString(now);
     
     // Fetch employee to resolve parent adminEmail (tenancy)
@@ -85,8 +98,21 @@ class AttendanceRecord {
     return record;
   }
 
-  static async clockOut(employeeId, workHoursEnd, adminEmail = '') {
+  static async clockOut(employeeId, workHoursEnd, adminEmail = '', workHoursEnabled = false, workHoursStart = '') {
     const now = new Date();
+    
+    if (workHoursEnabled && workHoursStart && workHoursEnd) {
+      const [startH, startM] = workHoursStart.split(':').map(Number);
+      const [endH, endM] = workHoursEnd.split(':').map(Number);
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const startMinutes = startH * 60 + startM;
+      const endMinutes = endH * 60 + endM;
+      
+      if (nowMinutes < startMinutes || nowMinutes > endMinutes) {
+        throw new Error("Clock-out is blocked outside work hours (Time-Gate active)");
+      }
+    }
+
     const dateStr = getLocalDateString(now);
     
     const cleanEmail = adminEmail.toLowerCase().replace(/[^a-z0-9]/g, '_');

@@ -395,11 +395,13 @@ app.get('/get-employees', async (req, res) => {
 // Endpoint: POST /api/attendance/clock-in
 app.post('/api/attendance/clock-in', async (req, res) => {
   try {
-    const { employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTime } = req.body;
+    const { employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTime, workHoursEnabled } = req.body;
     if (!employeeId) return res.status(400).json({ success: false, error: 'employeeId required' });
     
     const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
-    const record = await AttendanceRecord.clockIn(employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTime, adminEmail);
+    const record = await AttendanceRecord.clockIn(
+      employeeId, faceDistanceScore, workHoursStart, workHoursEnd, captureTime, adminEmail, !!workHoursEnabled
+    );
     res.json({ success: true, message: 'Clocked in successfully', record });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -409,11 +411,13 @@ app.post('/api/attendance/clock-in', async (req, res) => {
 // Endpoint: POST /api/attendance/clock-out
 app.post('/api/attendance/clock-out', async (req, res) => {
   try {
-    const { employeeId, workHoursEnd } = req.body;
+    const { employeeId, workHoursEnd, workHoursEnabled, workHoursStart } = req.body;
     if (!employeeId) return res.status(400).json({ success: false, error: 'employeeId required' });
     
     const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
-    const record = await AttendanceRecord.clockOut(employeeId, workHoursEnd, adminEmail);
+    const record = await AttendanceRecord.clockOut(
+      employeeId, workHoursEnd, adminEmail, !!workHoursEnabled, workHoursStart
+    );
     res.json({ success: true, message: 'Clocked out successfully', record });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
