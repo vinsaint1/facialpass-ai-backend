@@ -57,7 +57,15 @@ const PORT = process.env.PORT || 5005;
 // Middleware
 app.use(cors());                          // Allow cross-origin requests from mobile app
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies (large for base64 images)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: function (res, path, stat) {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // Configure Multer for image uploads
 const upload = multer({
