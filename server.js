@@ -784,11 +784,8 @@ app.post('/api/reports/generate-daily', async (req, res) => {
 app.get('/api/reports/monthly', async (req, res) => {
   try {
     const { monthPrefix } = req.query; // e.g. "2026-07"
-    if (!monthPrefix || !/^\d{4}-\d{2}$/.test(monthPrefix)) {
-      return res.status(400).json({ success: false, error: 'monthPrefix required (YYYY-MM)' });
-    }
-
     const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
+    console.log(`[API] GET /api/reports/monthly: monthPrefix=${monthPrefix}, adminEmail=${adminEmail}`);
     const empCol = getColName('employees', req);
     const attCol = getColName('attendance_logs', req);
 

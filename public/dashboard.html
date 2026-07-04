@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>HR Monthly Attendance Summary — FacialPass AI</title>
     <meta name="description" content="Professional HR dashboard for monthly employee attendance summaries and analytics. Powered by FacialPass AI.">
     <!-- Google Fonts -->
@@ -84,7 +84,6 @@
             background-color: var(--bg);
             color: var(--text);
             line-height: 1.6;
-            overflow-x: hidden;
             transition: background-color 0.3s ease, color 0.3s ease;
             padding-bottom: 60px;
         }
@@ -797,8 +796,12 @@
                 });
                 const result = await response.json();
 
-                if (!result.success || !result.summary || result.summary.totalEmployees === 0) {
-                    showNoDataState(true);
+                if (!result.success) {
+                    showNoDataState(true, "API returned success=false");
+                    return;
+                }
+                if (!result.summary || result.summary.totalEmployees === 0) {
+                    showNoDataState(true, "0 employees in summary response");
                     return;
                 }
 
@@ -820,19 +823,25 @@
 
             } catch (err) {
                 console.error("Error fetching report data:", err);
-                showNoDataState(true);
+                showNoDataState(true, err.message || err.toString());
             }
         }
 
-        function showNoDataState(show) {
+        function showNoDataState(show, errMsg = '') {
             const mainContent = document.getElementById('main-content');
             const noDataState = document.getElementById('no-data-state');
             if (show) {
                 mainContent.style.display = 'none';
                 noDataState.style.display = 'flex';
+                if (errMsg) {
+                    const desc = noDataState.querySelector('.no-data-desc');
+                    if(desc) desc.innerText = "Error: " + errMsg;
+                }
             } else {
                 mainContent.style.display = 'block';
                 noDataState.style.display = 'none';
+                const desc = noDataState.querySelector('.no-data-desc');
+                if(desc) desc.innerText = "There are no attendance logs or registered employees for the selected month. Try switching filters or onboarding employees.";
             }
         }
 
