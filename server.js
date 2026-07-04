@@ -13,10 +13,8 @@ const { db, admin } = require('./firebaseConfig');
 const { loadModels, extractEmbeddings } = require('./utils/faceEngine');
 const { registerAdminRoutes } = require('./routes/adminAuth');
 const cron = require('node-cron');
-let expo;
-import('expo-server-sdk').then(mod => {
-  expo = new mod.Expo();
-}).catch(err => console.warn('Failed to load expo-server-sdk:', err));
+const { Expo } = require('expo-server-sdk');
+let expo = new Expo();
 
 // Domain Models
 const Employee = require('./domain/Employee');
