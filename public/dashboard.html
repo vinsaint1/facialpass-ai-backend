@@ -784,10 +784,15 @@
             const month = document.getElementById('month-select').value;
             const monthPrefix = `${year}-${month}`;
 
+            // Read admin email from URL params for multi-tenancy
+            const urlParams = new URLSearchParams(window.location.search);
+            const adminEmail = urlParams.get('adminEmail') || '';
+
             try {
                 const response = await fetch(`/api/reports/monthly?monthPrefix=${monthPrefix}&_t=${Date.now()}`, {
                     headers: {
-                        'bypass-tunnel-reminder': 'true'
+                        'bypass-tunnel-reminder': 'true',
+                        'x-admin-email': adminEmail
                     }
                 });
                 const result = await response.json();

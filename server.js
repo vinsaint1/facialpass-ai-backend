@@ -12,6 +12,9 @@ const multer = require('multer');
 const { db, admin } = require('./firebaseConfig');
 const { loadModels, extractEmbeddings } = require('./utils/faceEngine');
 const { registerAdminRoutes } = require('./routes/adminAuth');
+const cron = require('node-cron');
+const { Expo } = require('expo-server-sdk');
+let expo = new Expo();
 
 // Domain Models
 const Employee = require('./domain/Employee');
@@ -594,560 +597,400 @@ app.get('/api/attendance/logs/:employeeId', async (req, res) => {
   }
 });
 
+
+// Core daily report generation logic
+async function generateDailyReportCore(adminEmail, targetDate, req) {
+  const empCol = getColName('employees', adminEmail);
+  const attCol = getColName('attendance_logs', adminEmail);
+  const leavesCol = getColName('leave_requests', adminEmail);
+  const repCol = getColName('daily_reports', adminEmail);
+  const logsCol = getColName('logs', adminEmail);
+
+  console.log(`[CRON/API] Generating daily report for ${targetDate} (Admin: ${adminEmail})...`);
+
+  const employeesSnap = await db.collection(empCol).get();
+  const employees = [];
+  employeesSnap.forEach(doc => employees.push(doc.data()));
+
+  const attendanceSnap = await db.collection(attCol)
+    .where('date', '==', targetDate)
+    .get();
+  
+  const attendanceByEmp = {};
+  attendanceSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.status === 'absent' && !data.clockInTime) return;
+    if (!attendanceByEmp[data.employeeId]) attendanceByEmp[data.employeeId] = [];
+    attendanceByEmp[data.employeeId].push(data);
+  });
+
+  const leavesSnap = await db.collection(leavesCol)
+    .where('status', '==', 'approved')
+    .get();
+  
+  const leavesByEmp = {};
+  leavesSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.startDate <= targetDate && data.endDate >= targetDate) {
+      leavesByEmp[data.employeeId] = data;
+    }
+  });
+
+  const shouldSave = !attendanceSnap.empty || targetDate < getLocalDateString(new Date());
+
+  const report = {
+    date: targetDate,
+    totalEmployees: employees.length,
+    present: 0,
+    absent: 0,
+    leave: 0,
+    late: 0,
+    missingClockOut: 0,
+    totalSessions: 0,
+    details: []
+  };
+
+  const getTimeMs = (ts) => {
+    if (!ts) return 0;
+    if (ts.toDate) return ts.toDate().getTime();
+    if (ts._seconds) return ts._seconds * 1000;
+    return new Date(ts).getTime() || 0;
+  };
+
+  let maxSessionsForDay = 1;
+  Object.values(attendanceByEmp).forEach(sessions => {
+    if (sessions && sessions.length > maxSessionsForDay) {
+      maxSessionsForDay = sessions.length;
+    }
+  });
+  report.totalSessions = maxSessionsForDay;
+
+  employees.forEach(emp => {
+    const sessions = attendanceByEmp[emp.employeeId];
+    const activeLeave = leavesByEmp[emp.employeeId];
+
+    if (!sessions || sessions.length === 0) {
+      if (activeLeave) {
+        report.leave++;
+        const leaveType = activeLeave.type || 'leave';
+        for (let i = 1; i <= maxSessionsForDay; i++) {
+          report.details.push({ employeeId: emp.employeeId, name: emp.name, status: leaveType, session: i });
+        }
+        if (shouldSave) {
+          db.collection(attCol).doc(`LEAVE-${targetDate}-${emp.employeeId}`).set({
+            logId: `LEAVE-${targetDate}-${emp.employeeId}`, employeeId: emp.employeeId, date: targetDate,
+            status: leaveType, totalHours: 0, latenessMinutes: 0, type: 'attendance', adminEmail: adminEmail
+          }).catch(console.error);
+        }
+      } else {
+        report.absent++;
+        for (let i = 1; i <= maxSessionsForDay; i++) {
+          report.details.push({ employeeId: emp.employeeId, name: emp.name, status: 'absent', session: i });
+        }
+        if (shouldSave) {
+          db.collection(attCol).doc(`ABSENT-${targetDate}-${emp.employeeId}`).set({
+            logId: `ABSENT-${targetDate}-${emp.employeeId}`, employeeId: emp.employeeId, date: targetDate,
+            status: 'absent', totalHours: 0, latenessMinutes: 0, type: 'attendance', adminEmail: adminEmail
+          }).catch(console.error);
+        }
+      }
+    } else {
+      report.present++;
+      sessions.sort((a, b) => getTimeMs(a.clockInTime) - getTimeMs(b.clockInTime));
+      sessions.forEach((log, idx) => {
+        if (log.status === 'late') report.late++;
+        if (!log.clockOutTime && log.status !== 'absent') report.missingClockOut++;
+        const clockInISO = log.clockInTime ? (log.clockInTime.toDate ? log.clockInTime.toDate().toISOString() : new Date(log.clockInTime).toISOString()) : null;
+        const clockOutISO = log.clockOutTime ? (log.clockOutTime.toDate ? log.clockOutTime.toDate().toISOString() : new Date(log.clockOutTime).toISOString()) : null;
+        report.details.push({ 
+          employeeId: emp.employeeId, name: emp.name, status: log.status,
+          clockInTime: clockInISO, clockOutTime: clockOutISO, totalHours: log.totalHours || 0,
+          session: idx + 1, totalSessionsForEmployee: sessions.length, logId: log.logId
+        });
+      });
+      for (let i = sessions.length + 1; i <= maxSessionsForDay; i++) {
+        report.details.push({ employeeId: emp.employeeId, name: emp.name, status: 'absent', session: i, totalSessionsForEmployee: sessions.length });
+      }
+    }
+  });
+
+  if (shouldSave) {
+    await db.collection(repCol).doc(targetDate).set(report);
+    await db.collection(logsCol).add({
+      type: 'report', name: 'Daily Report',
+      message: `Daily attendance report for ${targetDate}: ${report.present} present, ${report.absent} absent, ${report.late} late, ${report.totalSessions} total sessions.`,
+      status: 'granted', timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+  }
+  return report;
+}
+
+
+
+// Endpoint: POST /api/admin/settings
+app.post('/api/admin/settings', async (req, res) => {
+  try {
+    const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
+    const { workHoursStart, workHoursEnd, timezoneOffset } = req.body;
+    if (!adminEmail) return res.status(400).json({ success: false, error: 'Admin email required' });
+    
+    await db.collection('admins').doc(adminEmail).set({
+      workHoursStart,
+      workHoursEnd,
+      timezoneOffset,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Endpoint: POST /api/admin/push-token
+app.post('/api/admin/push-token', async (req, res) => {
+  try {
+    const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
+    const { pushToken } = req.body;
+    if (!adminEmail || !pushToken) return res.status(400).json({ success: false, error: 'Missing data' });
+    
+    await db.collection('admins').doc(adminEmail).set({
+      pushToken,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Endpoint: POST /api/reports/generate-daily
-// Calculates missing clock-outs and absences for the day.
 app.post('/api/reports/generate-daily', async (req, res) => {
   try {
-    const { date } = req.body; // YYYY-MM-DD
+    const { date } = req.body;
     const targetDate = date || getLocalDateString(new Date());
     const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
+    
+    const report = await generateDailyReportCore(adminEmail, targetDate, req);
+    res.json({ success: true, message: 'Report generated successfully', report });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
+// Endpoint: GET /api/reports/monthly
+// Aggregates daily reports for a given month into a comprehensive monthly summary.
+app.get('/api/reports/monthly', async (req, res) => {
+  try {
+    const { monthPrefix } = req.query; // e.g. "2026-07"
+    if (!monthPrefix || !/^\d{4}-\d{2}$/.test(monthPrefix)) {
+      return res.status(400).json({ success: false, error: 'monthPrefix required (YYYY-MM)' });
+    }
+
+    const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
     const empCol = getColName('employees', req);
     const attCol = getColName('attendance_logs', req);
-    const leavesCol = getColName('leave_requests', req);
-    const repCol = getColName('daily_reports', req);
-    const logsCol = getColName('logs', req);
-
-    console.log(`[API] Generating daily report for ${targetDate} (Admin: ${adminEmail})...`);
 
     // 1. Get all employees
     const employeesSnap = await db.collection(empCol).get();
     const employees = [];
     employeesSnap.forEach(doc => employees.push(doc.data()));
 
-    // 2. Get today's attendance logs — collect ALL sessions per employee
+    if (employees.length === 0) {
+      return res.json({ success: true, summary: { totalEmployees: 0 } });
+    }
+
+    // 2. Get all attendance logs for the month
+    const startDate = `${monthPrefix}-01`;
+    const [yearStr, monthStr] = monthPrefix.split('-');
+    const lastDay = new Date(parseInt(yearStr), parseInt(monthStr), 0).getDate();
+    const endDate = `${monthPrefix}-${lastDay.toString().padStart(2, '0')}`;
+
     const attendanceSnap = await db.collection(attCol)
-      .where('date', '==', targetDate)
+      .where('date', '>=', startDate)
+      .where('date', '<=', endDate)
       .get();
-    
-    const attendanceByEmp = {};
+
+    // Organize logs by employee and by date
+    const logsByEmpDate = {}; // { empId: { date: [logs] } }
+    const logsByDate = {};    // { date: [logs] }
+
     attendanceSnap.forEach(doc => {
       const data = doc.data();
-      if (data.status === 'absent' && !data.clockInTime) return;
-      if (!attendanceByEmp[data.employeeId]) {
-        attendanceByEmp[data.employeeId] = [];
-      }
-      attendanceByEmp[data.employeeId].push(data);
+      if (!data.employeeId || !data.date) return;
+
+      if (!logsByEmpDate[data.employeeId]) logsByEmpDate[data.employeeId] = {};
+      if (!logsByEmpDate[data.employeeId][data.date]) logsByEmpDate[data.employeeId][data.date] = [];
+      logsByEmpDate[data.employeeId][data.date].push(data);
+
+      if (!logsByDate[data.date]) logsByDate[data.date] = [];
+      logsByDate[data.date].push(data);
     });
 
-    // Query approved leave requests that cover this targetDate
-    const leavesSnap = await db.collection(leavesCol)
-      .where('status', '==', 'approved')
-      .get();
-    
-    const leavesByEmp = {};
-    leavesSnap.forEach(doc => {
-      const data = doc.data();
-      if (data.startDate <= targetDate && data.endDate >= targetDate) {
-        leavesByEmp[data.employeeId] = data;
-      }
-    });
-
-    const shouldSave = !attendanceSnap.empty || targetDate < getLocalDateString(new Date());
-
-    const report = {
-      date: targetDate,
-      totalEmployees: employees.length,
-      present: 0,
-      absent: 0,
-      leave: 0,
-      late: 0,
-      missingClockOut: 0,
-      totalSessions: 0,
-      details: []
-    };
-
-    const getTimeMs = (ts) => {
-      if (!ts) return 0;
-      if (ts.toDate) return ts.toDate().getTime();
-      if (ts._seconds) return ts._seconds * 1000;
-      return new Date(ts).getTime() || 0;
-    };
-
-    let maxSessionsForDay = 1;
-    Object.values(attendanceByEmp).forEach(sessions => {
-      if (sessions && sessions.length > maxSessionsForDay) {
-        maxSessionsForDay = sessions.length;
-      }
-    });
-    report.totalSessions = maxSessionsForDay;
-
-    // 3. Evaluate each employee
-    employees.forEach(emp => {
-      const sessions = attendanceByEmp[emp.employeeId];
-      const activeLeave = leavesByEmp[emp.employeeId];
-
-      if (!sessions || sessions.length === 0) {
-        if (activeLeave) {
-          report.leave++;
-          const leaveType = activeLeave.type || 'leave';
-          
-          for (let i = 1; i <= maxSessionsForDay; i++) {
-            report.details.push({ employeeId: emp.employeeId, name: emp.name, status: leaveType, session: i });
-          }
-
-          if (shouldSave) {
-            db.collection(attCol).doc(`LEAVE-${targetDate}-${emp.employeeId}`).set({
-              logId: `LEAVE-${targetDate}-${emp.employeeId}`,
-              employeeId: emp.employeeId,
-              date: targetDate,
-              status: leaveType,
-              totalHours: 0,
-              latenessMinutes: 0,
-              type: 'attendance',
-              adminEmail: adminEmail
-            }).catch(console.error);
-          }
-
-        } else {
-          report.absent++;
-          for (let i = 1; i <= maxSessionsForDay; i++) {
-            report.details.push({ employeeId: emp.employeeId, name: emp.name, status: 'absent', session: i });
-          }
-          
-          if (shouldSave) {
-            db.collection(attCol).doc(`ABSENT-${targetDate}-${emp.employeeId}`).set({
-              logId: `ABSENT-${targetDate}-${emp.employeeId}`,
-              employeeId: emp.employeeId,
-              date: targetDate,
-              status: 'absent',
-              totalHours: 0,
-              latenessMinutes: 0,
-              type: 'attendance',
-              adminEmail: adminEmail
-            }).catch(console.error);
-          }
-        }
-
-      } else {
-        report.present++;
-        
-        sessions.sort((a, b) => getTimeMs(a.clockInTime) - getTimeMs(b.clockInTime));
-
-        sessions.forEach((log, idx) => {
-          if (log.status === 'late') report.late++;
-          if (!log.clockOutTime && log.status !== 'absent') report.missingClockOut++;
-          
-          const clockInISO = log.clockInTime ? (log.clockInTime.toDate ? log.clockInTime.toDate().toISOString() : new Date(log.clockInTime).toISOString()) : null;
-          const clockOutISO = log.clockOutTime ? (log.clockOutTime.toDate ? log.clockOutTime.toDate().toISOString() : new Date(log.clockOutTime).toISOString()) : null;
-
-          report.details.push({ 
-            employeeId: emp.employeeId, 
-            name: emp.name, 
-            status: log.status,
-            clockInTime: clockInISO,
-            clockOutTime: clockOutISO,
-            totalHours: log.totalHours || 0,
-            session: idx + 1,
-            totalSessionsForEmployee: sessions.length,
-            logId: log.logId
-          });
-        });
-
-        for (let i = sessions.length + 1; i <= maxSessionsForDay; i++) {
-          report.details.push({
-            employeeId: emp.employeeId,
-            name: emp.name,
-            status: 'absent',
-            session: i,
-            totalSessionsForEmployee: sessions.length
-          });
-        }
-      }
-    });
-
-    if (shouldSave) {
-      await db.collection(repCol).doc(targetDate).set(report);
-      
-      await db.collection(logsCol).add({
-        type: 'report',
-        name: 'Daily Report',
-        message: `Daily attendance report for ${targetDate}: ${report.present} present, ${report.absent} absent, ${report.late} late, ${report.totalSessions} total sessions.`,
-        status: 'granted',
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
+    // 3. Calculate working days up to today
+    const today = getLocalDateString(new Date());
+    const effectiveEndDate = endDate < today ? endDate : today;
+    let workingDays = 0;
+    for (let d = 1; d <= lastDay; d++) {
+      const dateStr = `${monthPrefix}-${d.toString().padStart(2, '0')}`;
+      if (dateStr > effectiveEndDate) break;
+      const dayOfWeek = new Date(parseInt(yearStr), parseInt(monthStr) - 1, d).getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) workingDays++; // Exclude weekends
     }
+    if (workingDays === 0) workingDays = 1; // Prevent division by zero
 
-    res.json({ success: true, report });
-  } catch (error) {
-    console.error('[ERROR] Daily report error:', error.message);
-    res.status(500).json({ success: false, error: 'Server error: ' + error.message });
-  }
-});
-
-// Endpoint: GET /api/reports/monthly
-// Gets aggregated stats for the current month
-app.get('/api/reports/monthly', async (req, res) => {
-  try {
-    const { monthPrefix, workHoursEnd } = req.query; // YYYY-MM and HH:MM
-    const prefix = monthPrefix || new Date().toISOString().substring(0, 7);
-    const endHoursStr = workHoursEnd || '17:00';
-    
-    console.log(`[API] Fetching monthly report for ${prefix} (workHoursEnd: ${endHoursStr})...`);
-
-    const [yearStr, monthStr] = prefix.split('-');
-    const year = parseInt(yearStr);
-    const month = parseInt(monthStr);
-
-    if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
-      return res.status(400).json({ success: false, error: 'Invalid month format. Expected YYYY-MM.' });
-    }
-
-    const empCol = getColName('employees', req);
-    const attCol = getColName('attendance_logs', req);
-    const leavesCol = getColName('leave_requests', req);
-
-    const employeesSnap = await db.collection(empCol).get();
-    const employees = [];
-    employeesSnap.forEach(doc => {
-      const data = doc.data();
-      employees.push({
-        employeeId: data.employeeId,
-        name: data.name
-      });
-    });
-
-    const totalEmployees = employees.length;
-
-    const workingDaysList = [];
-    const daysInMonth = new Date(year, month, 0).getDate();
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${prefix}-${String(day).padStart(2, '0')}`;
-      const dateObj = new Date(year, month - 1, day);
-      const dayOfWeek = dateObj.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        workingDaysList.push(dateStr);
-      }
-    }
-    const workingDays = workingDaysList.length;
-    const expectedAttendance = totalEmployees * workingDays;
-
-    const startOfMonth = `${prefix}-01`;
-    const endOfMonth = `${prefix}-${String(daysInMonth).padStart(2, '0')}`;
-    
-    const logsSnapshot = await db.collection(attCol)
-      .where('date', '>=', startOfMonth)
-      .where('date', '<=', endOfMonth)
-      .get();
-
-    const logs = [];
-    logsSnapshot.forEach(doc => {
-      logs.push(doc.data());
-    });
-
-    const logsByEmployeeAndDate = {};
-    logs.forEach(log => {
-      const empId = log.employeeId;
-      const date = log.date;
-      if (!logsByEmployeeAndDate[empId]) {
-        logsByEmployeeAndDate[empId] = {};
-      }
-      if (!logsByEmployeeAndDate[empId][date]) {
-        logsByEmployeeAndDate[empId][date] = [];
-      }
-      logsByEmployeeAndDate[empId][date].push(log);
-    });
-
-    const leavesSnapshot = await db.collection(leavesCol)
-      .where('status', '==', 'approved')
-      .get();
-
-    const approvedLeaves = [];
-    leavesSnapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.startDate <= endOfMonth && data.endDate >= startOfMonth) {
-        approvedLeaves.push(data);
-      }
-    });
-
-    const leavesByEmployee = {};
-    approvedLeaves.forEach(leave => {
-      const empId = leave.employeeId;
-      if (!leavesByEmployee[empId]) {
-        leavesByEmployee[empId] = [];
-      }
-      leavesByEmployee[empId].push(leave);
-    });
-
-    const isEarlyDeparture = (clockOutDate, workHoursEndStr) => {
-      if (!clockOutDate) return false;
-      const [endH, endM] = workHoursEndStr.split(':').map(Number);
-      const hour = clockOutDate.getHours();
-      const minute = clockOutDate.getMinutes();
-      if (hour < endH) return true;
-      if (hour === endH && minute < endM) return true;
-      return false;
-    };
-
-    const employeeStats = [];
+    // 4. Build per-employee report
     let totalPresentDays = 0;
+    let totalLateDays = 0;
     let totalAbsentDays = 0;
-    let totalLateArrivals = 0;
+    let totalLeaveDays = 0;
     let totalEarlyDepartures = 0;
-    let totalSickLeaves = 0;
-    let totalAnnualLeaves = 0;
-    let totalRemoteWorks = 0;
 
-    const dailyPresentCounts = {};
-    workingDaysList.forEach(d => {
-      dailyPresentCounts[d] = 0;
-    });
-
-    const weeklyLateCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-
-    employees.forEach(emp => {
-      const empId = emp.employeeId;
-      const empLogs = logsByEmployeeAndDate[empId] || {};
-      const empLeaves = leavesByEmployee[empId] || [];
-
+    const employeeReport = employees.map(emp => {
+      const empLogs = logsByEmpDate[emp.employeeId] || {};
       let presentDays = 0;
       let absentDays = 0;
       let lateDays = 0;
-      let lateSessions = 0;
-      let earlyDeps = 0;
-      let sickDays = 0;
-      let annualDays = 0;
-      let remoteDays = 0;
+      let leaveDays = 0;
+      let earlyDepartures = 0;
 
-      workingDaysList.forEach(d => {
-        const dayLogs = empLogs[d] || [];
-        const hasClockIn = dayLogs.some(log => log.clockInTime && log.status !== 'absent');
+      // Check each working day
+      for (let d = 1; d <= lastDay; d++) {
+        const dateStr = `${monthPrefix}-${d.toString().padStart(2, '0')}`;
+        if (dateStr > effectiveEndDate) break;
+        const dayOfWeek = new Date(parseInt(yearStr), parseInt(monthStr) - 1, d).getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip weekends
 
-        if (hasClockIn) {
-          presentDays++;
-          dailyPresentCounts[d]++;
-          
-          dayLogs.forEach(log => {
-            if (log.status === 'late' || (log.latenessMinutes && log.latenessMinutes > 0)) {
-              lateSessions++;
-              
-              const dayOfMonth = parseInt(d.split('-')[2]);
-              let weekNum = 5;
-              if (dayOfMonth <= 7) weekNum = 1;
-              else if (dayOfMonth <= 14) weekNum = 2;
-              else if (dayOfMonth <= 21) weekNum = 3;
-              else if (dayOfMonth <= 28) weekNum = 4;
-              
-              weeklyLateCounts[weekNum]++;
-            }
-          });
-
-          const isLateOnDay = dayLogs.some(log => log.status === 'late' || (log.latenessMinutes && log.latenessMinutes > 0));
-          if (isLateOnDay) {
-            lateDays++;
-          }
-
-          let finalClockOut = null;
-          dayLogs.forEach(log => {
-            if (log.clockOutTime) {
-              const outDate = log.clockOutTime.toDate ? log.clockOutTime.toDate() : new Date(log.clockOutTime);
-              if (!finalClockOut || outDate > finalClockOut) {
-                finalClockOut = outDate;
-              }
-            }
-          });
-
-          if (finalClockOut && isEarlyDeparture(finalClockOut, endHoursStr)) {
-            earlyDeps++;
-            totalEarlyDepartures++;
-          }
-
+        const dayLogs = empLogs[dateStr] || [];
+        if (dayLogs.length === 0) {
+          absentDays++;
         } else {
-          const activeLeave = empLeaves.find(l => l.startDate <= d && l.endDate >= d);
-          if (activeLeave) {
-            const type = activeLeave.type;
-            if (type === 'sick') {
-              sickDays++;
-              totalSickLeaves++;
-            } else if (type === 'vacation' || type === 'personal' || type === 'annual') {
-              annualDays++;
-              totalAnnualLeaves++;
-            } else if (type === 'remote' || type === 'wfh' || type === 'work_from_home') {
-              remoteDays++;
-              totalRemoteWorks++;
-            } else {
-              annualDays++;
-              totalAnnualLeaves++;
-            }
+          const hasLeave = dayLogs.some(l => l.status === 'sick_leave' || l.status === 'annual_leave' || l.status === 'leave' || l.status === 'remote_work');
+          const hasAbsent = dayLogs.every(l => l.status === 'absent' && !l.clockInTime);
+          const hasLate = dayLogs.some(l => l.status === 'late');
+
+          if (hasAbsent) {
+            absentDays++;
+          } else if (hasLeave) {
+            leaveDays++;
           } else {
-            const hasAbsentLog = dayLogs.some(log => log.status === 'absent');
-            if (hasAbsentLog) {
-              absentDays++;
-              totalAbsentDays++;
-            }
+            presentDays++;
+            if (hasLate) lateDays++;
           }
         }
-      });
+      }
+
+      const attendanceRate = (presentDays / workingDays) * 100;
 
       totalPresentDays += presentDays;
-      totalLateArrivals += lateSessions;
+      totalLateDays += lateDays;
+      totalAbsentDays += absentDays;
+      totalLeaveDays += leaveDays;
+      totalEarlyDepartures += earlyDepartures;
 
-      const attendanceRate = workingDays > 0 ? (presentDays / workingDays) * 100 : 0;
-      const leaveDays = sickDays + annualDays;
-
-      employeeStats.push({
-        employeeId: empId,
+      return {
+        employeeId: emp.employeeId,
         name: emp.name,
         presentDays,
         absentDays,
         lateDays,
-        lateArrivals: lateSessions,
-        earlyDepartures: earlyDeps,
         leaveDays,
-        sickDays,
-        annualDays,
-        remoteDays,
-        attendanceRate: parseFloat(attendanceRate.toFixed(2))
-      });
-    });
-
-    const overallAttendanceRate = expectedAttendance > 0 ? (totalPresentDays / expectedAttendance) * 100 : 0;
-
-    const sortedEmployees = [...employeeStats].sort((a, b) => b.attendanceRate - a.attendanceRate);
-    let topPerformers = [];
-    const perfectAttendanceEmps = sortedEmployees.filter(emp => emp.attendanceRate === 100);
-    if (perfectAttendanceEmps.length >= 5) {
-      topPerformers = perfectAttendanceEmps;
-    } else {
-      topPerformers = sortedEmployees.slice(0, Math.max(5, perfectAttendanceEmps.length));
-    }
-
-    const requiringAttention = employeeStats.filter(emp => {
-      return emp.attendanceRate < 80 || emp.absentDays > 3 || emp.lateArrivals > 5;
-    }).map(emp => {
-      const issues = [];
-      if (emp.attendanceRate < 80) issues.push(`Attendance below 80% (${emp.attendanceRate.toFixed(2)}%)`);
-      if (emp.absentDays > 3) issues.push(`Absences > 3 (${emp.absentDays} days)`);
-      if (emp.lateArrivals > 5) issues.push(`Late Arrivals > 5 (${emp.lateArrivals} times)`);
-      return {
-        ...emp,
-        reason: issues.join(', ')
+        earlyDepartures,
+        attendanceRate: Math.min(attendanceRate, 100)
       };
     });
 
-    const dailyTrendLabels = workingDaysList;
-    const dailyTrendData = workingDaysList.map(d => {
-      const count = dailyPresentCounts[d] || 0;
-      const rate = totalEmployees > 0 ? (count / totalEmployees) * 100 : 0;
-      return parseFloat(rate.toFixed(2));
+    // 5. Summary
+    const overallAttendanceRate = employees.length > 0 
+      ? (totalPresentDays / (workingDays * employees.length)) * 100 
+      : 0;
+
+    const summary = {
+      totalEmployees: employees.length,
+      presentDays: totalPresentDays,
+      lateArrivals: totalLateDays,
+      earlyDepartures: totalEarlyDepartures,
+      attendanceRate: Math.min(overallAttendanceRate, 100)
+    };
+
+    // 6. Top Performers (attendance rate >= 90%)
+    const topPerformers = employeeReport
+      .filter(e => e.attendanceRate >= 90)
+      .sort((a, b) => b.attendanceRate - a.attendanceRate)
+      .slice(0, 5);
+
+    // 7. Requiring Attention (attendance rate < 80% or late > 3)
+    const requiringAttention = employeeReport
+      .filter(e => e.attendanceRate < 80 || e.lateDays > 3)
+      .map(e => ({
+        name: e.name,
+        reason: e.attendanceRate < 80 
+          ? `Low attendance: ${e.attendanceRate.toFixed(1)}%` 
+          : `Frequent late arrivals: ${e.lateDays} days`
+      }));
+
+    // 8. Daily Trend (attendance % per day)
+    const dailyTrendLabels = [];
+    const dailyTrendData = [];
+    for (let d = 1; d <= lastDay; d++) {
+      const dateStr = `${monthPrefix}-${d.toString().padStart(2, '0')}`;
+      if (dateStr > effectiveEndDate) break;
+      const dayOfWeek = new Date(parseInt(yearStr), parseInt(monthStr) - 1, d).getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+
+      dailyTrendLabels.push(dateStr);
+      const dayLogs = logsByDate[dateStr] || [];
+      const presentEmps = new Set();
+      dayLogs.forEach(l => {
+        if (l.clockInTime && l.status !== 'absent') presentEmps.add(l.employeeId);
+      });
+      dailyTrendData.push(employees.length > 0 ? (presentEmps.size / employees.length) * 100 : 0);
+    }
+
+    // 9. Status Distribution
+    let sickLeaveCount = 0;
+    let annualLeaveCount = 0;
+    let remoteWorkCount = 0;
+    attendanceSnap.forEach(doc => {
+      const s = doc.data().status;
+      if (s === 'sick_leave') sickLeaveCount++;
+      else if (s === 'annual_leave') annualLeaveCount++;
+      else if (s === 'remote_work') remoteWorkCount++;
     });
 
-    const weeklyLateData = [
-      weeklyLateCounts[1],
-      weeklyLateCounts[2],
-      weeklyLateCounts[3],
-      weeklyLateCounts[4],
-      weeklyLateCounts[5]
-    ];
+    const statusDistribution = {
+      present: totalPresentDays,
+      absent: totalAbsentDays,
+      sickLeave: sickLeaveCount,
+      annualLeave: annualLeaveCount,
+      remoteWork: remoteWorkCount
+    };
 
-    const logsCol = getColName('logs', req);
-    await db.collection(logsCol).add({
-      type: 'report',
-      name: 'Monthly HR Report',
-      message: `Monthly attendance summary for ${prefix}: Analyzed performance for ${totalEmployees} employees. Overall rate: ${overallAttendanceRate.toFixed(2)}%`,
-      status: 'granted',
-      timestamp: admin.firestore.FieldValue.serverTimestamp()
+    // 10. Weekly Late Arrivals
+    const weeklyLates = { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'], data: [0, 0, 0, 0, 0] };
+    attendanceSnap.forEach(doc => {
+      const data = doc.data();
+      if (data.status === 'late' && data.date) {
+        const day = parseInt(data.date.split('-')[2]);
+        const weekIdx = Math.min(Math.floor((day - 1) / 7), 4);
+        weeklyLates.data[weekIdx]++;
+      }
     });
 
     res.json({
       success: true,
-      month: prefix,
-      summary: {
-        totalEmployees,
-        workingDays,
-        expectedAttendance,
-        presentDays: totalPresentDays,
-        absentDays: totalAbsentDays,
-        lateArrivals: totalLateArrivals,
-        earlyDepartures: totalEarlyDepartures,
-        sickLeaves: totalSickLeaves,
-        annualLeaves: totalAnnualLeaves,
-        remoteWorks: totalRemoteWorks,
-        attendanceRate: parseFloat(overallAttendanceRate.toFixed(2))
-      },
-      employeeReport: employeeStats,
-      stats: employeeStats,
-      statusDistribution: {
-        present: totalPresentDays,
-        absent: totalAbsentDays,
-        sickLeave: totalSickLeaves,
-        annualLeave: totalAnnualLeaves,
-        remoteWork: totalRemoteWorks
-      },
+      summary,
+      employeeReport,
       topPerformers,
       requiringAttention,
-      dailyTrend: {
-        labels: dailyTrendLabels,
-        data: dailyTrendData
-      },
-      weeklyLates: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'],
-        data: weeklyLateData
-      }
+      dailyTrend: { labels: dailyTrendLabels, data: dailyTrendData },
+      statusDistribution,
+      weeklyLates
     });
 
   } catch (error) {
     console.error('[ERROR] Monthly report error:', error.message);
-    res.status(500).json({ success: false, error: 'Server error: ' + error.message });
-  }
-});
-
-// Endpoint: DELETE /delete-employee/:id
-// Delete an employee from Firestore
-app.delete('/delete-employee/:id', async (req, res) => {
-  try {
-    if (!db) {
-      return res.status(503).json({
-        success: false,
-        error: 'Firestore not connected. Check Firebase configuration.'
-      });
-    }
-
-    const employeeId = req.params.id;
-    const docId = employeeId.replace(/\//g, '-');
-    const adminEmail = (req.headers['x-admin-email'] || '').toLowerCase();
-
-    console.log(`[API] Deleting employee: ${employeeId} (Admin: ${adminEmail})`);
-
-    const empCol = getColName('employees', req);
-    const docRef = db.collection(empCol).doc(docId);
-    const doc = await docRef.get();
-
-    if (!doc.exists) {
-      return res.status(404).json({
-        success: false,
-        error: `Employee with ID "${employeeId}" not found.`
-      });
-    }
-
-    await docRef.delete();
-    invalidateEmployeeCache(adminEmail);
-    console.log(`[DB] Employee deleted: ${docId} from ${empCol}`);
-
-    res.json({
-      success: true,
-      message: `Employee "${employeeId}" has been deleted.`
-    });
-
-  } catch (error) {
-    console.error('[ERROR] Delete employee error:', error.message);
-    res.status(500).json({
-      success: false,
-      error: 'Server error deleting employee: ' + error.message
-    });
-  }
-});
-
-// Endpoint: GET /api/schedules/:employeeId
-app.get('/api/schedules/:employeeId', async (req, res) => {
-  try {
-    const { employeeId } = req.params;
-    const colName = getColName('schedules', req);
-    const snapshot = await db.collection(colName).where('employeeId', '==', employeeId).get();
-    const schedules = [];
-    snapshot.forEach(doc => schedules.push(doc.data()));
-    res.json({ success: true, schedules });
-  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1337,6 +1180,76 @@ app.get('/health', (req, res) => {
 // Health check and Homepage
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+
+// Backend Cron Job for Automated Session Closing
+// Tracks which admin+date combos have already been processed to avoid duplicates
+const processedSessionEnds = new Set();
+
+cron.schedule('* * * * *', async () => {
+  try {
+    const adminsSnap = await db.collection('admins').get();
+    if (adminsSnap.empty) return;
+    
+    const nowUtc = new Date();
+    
+    for (const doc of adminsSnap.docs) {
+      try {
+        const adminData = doc.data();
+        const adminEmail = doc.id;
+        if (!adminData.workHoursEnd) continue;
+        
+        const tzOffset = adminData.timezoneOffset || 0;
+        const localNow = new Date(nowUtc.getTime() - (tzOffset * 60000));
+        const currentH = localNow.getUTCHours();
+        const currentM = localNow.getUTCMinutes();
+        const currentTimeStr = `${currentH.toString().padStart(2, '0')}:${currentM.toString().padStart(2, '0')}`;
+        
+        if (currentTimeStr === adminData.workHoursEnd) {
+          const todayStr = localNow.toISOString().split('T')[0];
+          const processKey = `${adminEmail}_${todayStr}`;
+          
+          // Skip if already processed for this admin+date
+          if (processedSessionEnds.has(processKey)) continue;
+          processedSessionEnds.add(processKey);
+          
+          console.log(`[CRON] End of work hours detected for ${adminEmail} at ${currentTimeStr}. Generating daily report...`);
+          
+          // Generate the report
+          await generateDailyReportCore(adminEmail, todayStr, null);
+          console.log(`[CRON] Daily report generated for ${adminEmail} (${todayStr}).`);
+          
+          // Send Push Notification
+          if (adminData.pushToken && Expo.isExpoPushToken(adminData.pushToken)) {
+            await expo.sendPushNotificationsAsync([{
+              to: adminData.pushToken,
+              sound: 'default',
+              title: "⏰ Workday Complete!",
+              body: "The scheduled work hours have ended. The Daily Report has been generated automatically.",
+              data: { screen: 'Report' },
+            }]).catch(err => console.error('[CRON] Push notification failed:', err));
+            console.log(`[CRON] Push notification sent to ${adminEmail}.`);
+          }
+        }
+      } catch (innerErr) {
+        console.error(`[CRON] Error processing admin ${doc.id}:`, innerErr.message);
+      }
+    }
+    
+    // Clean up old entries from processedSessionEnds (keep only today's)
+    const todayPrefix = nowUtc.toISOString().split('T')[0];
+    for (const key of processedSessionEnds) {
+      if (!key.endsWith(todayPrefix)) processedSessionEnds.delete(key);
+    }
+  } catch (err) {
+    // Silently handle network errors to avoid log spam during connectivity issues
+    if (err.code === 14 || err.message?.includes('EHOSTUNREACH')) {
+      // Network unreachable — skip this tick silently
+    } else {
+      console.error('[CRON] Automated session job failed:', err.message);
+    }
+  }
 });
 
 // Server Startup
